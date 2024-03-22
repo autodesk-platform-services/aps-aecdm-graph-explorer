@@ -1,0 +1,216 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script type="text/javascript" src="https://unpkg.com/vis-network/standalone/umd/vis-network.min.js"></script>
+    <link rel="stylesheet" href="https://developer.api.autodesk.com/modelderivative/v2/viewers/7.*/style.css">
+    <style>
+        body {
+            padding: 0;
+            margin: 0;
+            width: 100vw;
+            height: 100vh;
+            font-family: ArtifaktElement;
+        }
+
+        #header,
+        #graph {
+            position: absolute;
+            left: 0;
+            right: 0;
+        }
+
+        #header {
+            top: 0;
+            height: 50px;
+            display: flex;
+            flex-flow: row nowrap;
+            justify-content: start;
+            align-items: center;
+        }
+
+        #header>* {
+            margin: 0 0.5em;
+        }
+
+        #header .logo {
+            height: 2em;
+        }
+
+        #graph {
+            top: 50px;
+            bottom: 0;
+            margin: 0 0.5em 0.5em 0.5em;
+            box-shadow: inset 0 0 5px rgba(0, 0, 0, 0.5);
+        }
+    </style>
+    <title>AEC Data Model: Graph Explorer</title>
+</head>
+
+<body>
+    <div id="header">
+        <img class="logo" src="https://cdn.autodesk.io/logo/black/stacked.png" alt="Autodesk Platform Services">
+        <span class="title">AEC Data Model: Graph Explorer</span>
+        <label for="token" style="margin-left: auto; margin-right: 0;">Access Token</label>
+        <input type="text" id="token" style="width: 30em;">
+    </div>
+    <div id="graph"></div>
+    <script type="module">
+        import { Query } from "./AECDataModelSchema.js";
+
+        let network = null;
+
+        const token = document.getElementById("token");
+        token.value = window.ACCESS_TOKEN = localStorage.getItem("aecdm-graph-explorer-token");
+        token.addEventListener("change", function () {
+            localStorage.setItem("aecdm-graph-explorer-token", token.value);
+            window.ACCESS_TOKEN = token.value;
+            if (network) {
+                network.destroy();
+                network = null;
+            }
+            if (window.ACCESS_TOKEN) {
+                network = init();
+            }
+        });
+        if (window.ACCESS_TOKEN) {
+            network = init();
+        }
+
+        function init() {
+            const nodes = new vis.DataSet();
+            const edges = new vis.DataSet();
+            const network = new vis.Network(document.getElementById("graph"), { nodes, edges }, {
+                nodes: {
+                    shape: "dot",
+                    size: 10,
+                    font: {
+                        size: 10
+                    }
+                },
+                edges: {
+                    color: "black",
+                    // smooth: false,
+                    font: {
+                        size: 10
+                    }
+                },
+                groups: {
+                    collapsed: {
+                        size: 2,
+                        color: "lightgray"
+                    },
+                    array: {
+                        color: {
+                            border: "black",
+                            background: "white"
+                        }
+                    },
+                    query: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/eye.svg",
+                    },
+                    hub: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/circle-dot.svg",
+                    },
+                    project: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/building.svg",
+                    },
+                    projectalternativerepresentations: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/square.svg",
+                    },
+                    folder: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/folder.svg",
+                    },
+                    aecdesign: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/file.svg",
+                    },
+                    propertydefinition: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/chart-bar.svg",
+                    },
+                    version: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/calendar.svg",
+                    },
+                    lineage: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/calendar-days.svg",
+                    },
+                    user: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/user.svg",
+                    },
+                    element: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/square.svg",
+                    },
+                    property: {
+                        shape: "image",
+                        image: "fontawesome/svgs/regular/rectangle-list.svg",
+                    }
+                }
+            });
+
+            function createTooltip(obj) {
+                const table = document.createElement("table");
+                table.innerHTML = Object.keys(obj.constructor.schema.props).map(key => `<tr><td>${key}</td><td>${obj[key]}</td></tr>`).join("");
+                return table;
+            }
+
+            function addNode(obj, pos) {
+                if (!nodes.get(obj.id)) {
+                    nodes.add({ id: obj.id, label: obj.name, title: createTooltip(obj), group: obj.constructor.name.toLowerCase(), x: pos?.x, y: pos?.y, metadata: { raw: obj } });
+                    const { links } = obj.constructor.schema;
+                    for (const [name, link] of Object.entries(links)) {
+                        const id = nodes.add({ group: "collapsed" })[0];
+                        edges.add({ font: { color: "lightgray" }, from: obj.id, to: id, label: name, color: "lightgray", dashes: true, length: 1, metadata: { expanded: false, name, link } });
+                    }
+                }
+                return obj.id;
+            }
+
+            network.on("doubleClick", async function (ev) {
+                if (ev.nodes.length === 1) {
+                    const node = nodes.get(ev.nodes[0]);
+                    console.log("Double clicked node", node);
+                } else if (ev.edges.length === 1) {
+                    const edge = edges.get(ev.edges[0]);
+                    console.log("Double clicked edge", edge);
+                    if (!edge.metadata.expanded) {
+                        edge.metadata.expanded = true;
+                        const sourceObject = nodes.get(edge.from).metadata.raw;
+                        const targetNodePosition = network.getPositions(edge.to)[edge.to];
+                        const { name, link } = edge.metadata;
+                        edges.update({ id: edge.id, label: "Loading..." });
+                        const result = await sourceObject[name]({});
+                        nodes.remove(edge.to);
+                        if (Array.isArray(result)) {
+                            const arrNodeId = nodes.add({ group: "array" })[0];
+                            edges.add({ from: edge.from, to: arrNodeId, label: name, arrows: "to", metadata: { expanded: true } });
+                            for (const [i, obj] of result.entries()) {
+                                const id = addNode(obj, targetNodePosition);
+                                edges.add({ from: arrNodeId, to: id, label: `${name}[${i}]`, arrows: "to", metadata: { expanded: true } });
+                            }
+                        } else {
+                            const id = addNode(result, targetNodePosition);
+                            edges.add({ from: edge.from, to: id, label: name, arrows: "to", metadata: { expanded: true } });
+                        }
+                    }
+                }
+            });
+
+            addNode(new Query());
+            return network;
+        }
+    </script>
+</body>
+
+</html>
